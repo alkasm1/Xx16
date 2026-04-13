@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>Protocol v4 - Image Transport System</title>
+
+<style>
+body{
+font-family: Arial;
+background:#0d1117;
+color:white;
+margin:0;
+padding:0;
+}
+.container{
+max-width:900px;
+margin:40px auto;
+padding:20px;
+background:#161b22;
+border-radius:12px;
+}
+textarea,input{
+width:100%;
+padding:10px;
+margin-top:10px;
+border-radius:8px;
+background:#0d1117;
+color:white;
+border:1px solid #333;
+}
+button{
+margin-top:10px;
+padding:10px;
+background:#238636;
+border:none;
+color:white;
+border-radius:8px;
+cursor:pointer;
+}
+canvas{
+margin-top:20px;
+width:100%;
+border:1px solid #444;
+}
+.output{
+margin-top:10px;
+padding:10px;
+border:1px dashed #444;
+white-space:pre-wrap;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h2>Protocol v4 - Image Transport</h2>
+
+<input id="key" type="number" value="12345">
+
+<textarea id="input"></textarea>
+<button onclick="encode()">Encode → Image</button>
+
+<canvas id="canvas"></canvas>
+
+<button onclick="saveImage()">Save Image</button>
+
+<hr>
+
+<input type="file" id="imgInput" accept="image/png">
+<button onclick="decode()">Decode</button>
+
+<div class="output" id="out"></div>
+
+</div>
+
+<script>
+
+// ================= DICTIONARY =================
+let dict = {};
+let rev = {};
+let counter = 1n;
+
+// ================= PROTOCOL =================
+const END = 999999999n;
+
+// كلمة → ID
+function getId(w){
+if(dict[w] !== undefined) return BigInt(dict[w]);
+dict[w] = Number(counter);
+rev[Number(counter)] = w;
+counter++;
+return counter - 1n;
+}
+
+// CRC
+function crc(n){
+return (n ^ 0xBEEF) % 65535n;
+}
+
+// ================= ENCODE =================
+function encode(){
+
+const key = BigInt(document.getElementById("key").value || 0);
+const words = document.getElementById("input").value.trim().split(/\s+/);
+
+let packets = [];
+let seq = 1n;
+
+for(let w of words){
+
+let id = getId(w);
+
+let data = (seq * 100000n) + id;
+let enc = data ^ key;
+let c = crc(enc + seq);
+
+let packet = (seq * 100000000n) + (enc * 1000n) + c;
+
+packets.push(packet);
+seq++;
+}
+
+packets.push(END);
+
+// ====== تحويل إلى صورة ======
+const size = Math.ceil(Math.sqrt(packets.length * 2));
+const canvas = document.getElementById("canvas");
+canvas.width = size;
+canvas.height = size;
+
+const ctx = canvas.getContext("2d");
+let img = ctx.createImageData(size,size);
+
+let i = 0;
+
+for(let p of packets){
+
+let n = BigInt(p);
+
+// كل رقم → 4 بايت
+for(let b=0;b<4;b++){
+let byte = Number((n >> BigInt(b*8)) & 255n);
+
+img.data[i++] = byte;
+}
+}
+
+ctx.putImageData(img,0,0);
+window.lastPackets = packets;
+alert("Encoded to image");
+}
+
+// ================= SAVE =================
+function saveImage(){
+const canvas = document.getElementById("canvas");
+const a = document.createElement("a");
+a.href = canvas.toDataURL("image/png");
+a.download = "protocol_v4.png";
+a.click();
+}
+
+// ================= DECODE =================
+function decode(){
+
+const file = document.getElementById("imgInput").files[0];
+if(!file) return;
+
+const key = BigInt(document.getElementById("key").value || 0);
+
+let img = new Image();
+
+img.onload = () => {
+
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+canvas.width = img.width;
+canvas.height = img.height;
+
+ctx.drawImage(img,0,0);
+
+let data = ctx.getImageData(0,0,canvas.width,canvas.height).data;
+
+let packets = [];
+
+// 4 bytes → number
+for(let i=0;i<data.length;i+=4){
+
+let n =
+(BigInt(data[i]) |
+(BigInt(data[i+1]) << 8n) |
+(BigInt(data[i+2]) << 16n) |
+(BigInt(data[i+3]) << 24n));
+
+if(n > 0n) packets.push(n);
+}
+
+// ===== decode protocol =====
+let result = [];
+
+for(let p of packets){
+
+if(p === END) break;
+
+let crcVal = p % 1000n;
+let enc = (p / 1000n) % 100000n;
+let seq = p / 100000000n;
+
+let check = (enc + seq) ^ key;
+if(crc(check + seq) !== crcVal) continue;
+
+let data = enc ^ key;
+let id = data % 100000n;
+
+result.push(rev[Number(id)] || "?");
+}
+
+document.getElementById("out").textContent =
+result.join(" ");
+};
+
+img.src = URL.createObjectURL(file);
+}
+
+</script>
+
+</body>
+</html>
