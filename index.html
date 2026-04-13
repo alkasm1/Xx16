@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<title>Protocol v4 - Image Transport System</title>
+<title>IFS v5 - File System inside Image</title>
 
 <style>
 body{
@@ -19,7 +19,7 @@ padding:20px;
 background:#161b22;
 border-radius:12px;
 }
-textarea,input{
+input,textarea{
 width:100%;
 padding:10px;
 margin-top:10px;
@@ -55,12 +55,11 @@ white-space:pre-wrap;
 
 <div class="container">
 
-<h2>Protocol v4 - Image Transport</h2>
+<h2>IFS v5 - File System inside Image</h2>
 
-<input id="key" type="number" value="12345">
+<input type="file" id="fileInput">
 
-<textarea id="input"></textarea>
-<button onclick="encode()">Encode → Image</button>
+<button onclick="encodeFile()">Encode File → Image</button>
 
 <canvas id="canvas"></canvas>
 
@@ -69,7 +68,7 @@ white-space:pre-wrap;
 <hr>
 
 <input type="file" id="imgInput" accept="image/png">
-<button onclick="decode()">Decode</button>
+<button onclick="decodeFile()">Decode File</button>
 
 <div class="output" id="out"></div>
 
@@ -77,55 +76,32 @@ white-space:pre-wrap;
 
 <script>
 
-// ================= DICTIONARY =================
-let dict = {};
-let rev = {};
-let counter = 1n;
-
-// ================= PROTOCOL =================
-const END = 999999999n;
-
-// كلمة → ID
-function getId(w){
-if(dict[w] !== undefined) return BigInt(dict[w]);
-dict[w] = Number(counter);
-rev[Number(counter)] = w;
-counter++;
-return counter - 1n;
-}
-
-// CRC
-function crc(n){
-return (n ^ 0xBEEF) % 65535n;
+// ================= FILE → BYTES =================
+async function fileToBytes(file){
+return new Uint8Array(await file.arrayBuffer());
 }
 
 // ================= ENCODE =================
-function encode(){
+async function encodeFile(){
 
-const key = BigInt(document.getElementById("key").value || 0);
-const words = document.getElementById("input").value.trim().split(/\s+/);
+const file = document.getElementById("fileInput").files[0];
+if(!file) return alert("اختر ملف");
 
-let packets = [];
-let seq = 1n;
+const bytes = await fileToBytes(file);
 
-for(let w of words){
+// ===== File Header =====
+let meta = new TextEncoder().encode(
+file.name + "|" + file.type + "|" + bytes.length
+);
 
-let id = getId(w);
+// combine
+let all = new Uint8Array(meta.length + bytes.length);
+all.set(meta,0);
+all.set(bytes,meta.length);
 
-let data = (seq * 100000n) + id;
-let enc = data ^ key;
-let c = crc(enc + seq);
+// ===== IMAGE SIZE =====
+const size = Math.ceil(Math.sqrt(all.length/4));
 
-let packet = (seq * 100000000n) + (enc * 1000n) + c;
-
-packets.push(packet);
-seq++;
-}
-
-packets.push(END);
-
-// ====== تحويل إلى صورة ======
-const size = Math.ceil(Math.sqrt(packets.length * 2));
 const canvas = document.getElementById("canvas");
 canvas.width = size;
 canvas.height = size;
@@ -133,41 +109,29 @@ canvas.height = size;
 const ctx = canvas.getContext("2d");
 let img = ctx.createImageData(size,size);
 
-let i = 0;
-
-for(let p of packets){
-
-let n = BigInt(p);
-
-// كل رقم → 4 بايت
-for(let b=0;b<4;b++){
-let byte = Number((n >> BigInt(b*8)) & 255n);
-
-img.data[i++] = byte;
-}
+for(let i=0;i<all.length;i++){
+img.data[i] = all[i];
 }
 
 ctx.putImageData(img,0,0);
-window.lastPackets = packets;
-alert("Encoded to image");
+
+alert("File encoded into image");
 }
 
 // ================= SAVE =================
 function saveImage(){
 const canvas = document.getElementById("canvas");
-const a = document.createElement("a");
-a.href = canvas.toDataURL("image/png");
-a.download = "protocol_v4.png";
+const a=document.createElement("a");
+a.href=canvas.toDataURL("image/png");
+a.download="ifs_v5.png";
 a.click();
 }
 
 // ================= DECODE =================
-function decode(){
+async function decodeFile(){
 
 const file = document.getElementById("imgInput").files[0];
 if(!file) return;
-
-const key = BigInt(document.getElementById("key").value || 0);
 
 let img = new Image();
 
@@ -181,44 +145,34 @@ canvas.height = img.height;
 
 ctx.drawImage(img,0,0);
 
-let data = ctx.getImageData(0,0,canvas.width,canvas.height).data;
+const data = ctx.getImageData(0,0,canvas.width,canvas.height).data;
 
-let packets = [];
-
-// 4 bytes → number
-for(let i=0;i<data.length;i+=4){
-
-let n =
-(BigInt(data[i]) |
-(BigInt(data[i+1]) << 8n) |
-(BigInt(data[i+2]) << 16n) |
-(BigInt(data[i+3]) << 24n));
-
-if(n > 0n) packets.push(n);
+// remove zeros
+let bytes = [];
+for(let b of data){
+if(b !== 0) bytes.push(b);
 }
 
-// ===== decode protocol =====
-let result = [];
+let text = new TextDecoder().decode(new Uint8Array(bytes));
 
-for(let p of packets){
+// split metadata
+let [meta, ...rest] = text.split("|");
 
-if(p === END) break;
+// extract file info
+let [name,type,size] = meta.split("|");
 
-let crcVal = p % 1000n;
-let enc = (p / 1000n) % 100000n;
-let seq = p / 100000000n;
+// convert back
+let fileData = new Uint8Array(rest.map(x=>x.charCodeAt(0)));
 
-let check = (enc + seq) ^ key;
-if(crc(check + seq) !== crcVal) continue;
+let blob = new Blob([fileData],{type:type});
 
-let data = enc ^ key;
-let id = data % 100000n;
-
-result.push(rev[Number(id)] || "?");
-}
+let a = document.createElement("a");
+a.href = URL.createObjectURL(blob);
+a.download = name;
+a.click();
 
 document.getElementById("out").textContent =
-result.join(" ");
+"Restored file: " + name;
 };
 
 img.src = URL.createObjectURL(file);
