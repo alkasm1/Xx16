@@ -1,6 +1,6 @@
 {
-  "name": "Xx16 App",
-  "short_name": "Xx16",
+  "name": "ALM App",
+  "short_name": "ALM_book",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#ffffff",
