@@ -121,8 +121,10 @@
     }
   </style>
 </head>
-
-<body>
+<link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#000000">
+</head>
+  <body>
   <header>ALM GeoFreq v6 — File → Image → File</header>
 
   <div class="container">
@@ -177,10 +179,14 @@
           ملاحظة: فك التشفير هنا ينتج <b>نص</b> ثم يتم إنشاء Word أو PDF كنص.
           إذا أردت “الصورة نفسها داخل Word/PDF” (بدون OCR/بدون نص) قلّي وسأضيف وضعًا جديدًا.
         </small>
-      </div>
+      </div> 
     </div>
   </div>
-
+<script>
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js");
+}
+</script>
 <script>
   // ================= SETTINGS =================
   const B=32, LMAX=12, SIZE=1024, HEADER=24;
